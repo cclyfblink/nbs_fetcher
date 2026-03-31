@@ -1,0 +1,8 @@
+This project is derived from the open-source project `cnstats`
+by sj (https://github.com/songjian/cnstats), licensed under the MIT License.
+
+The original project targeted the retired `easyquery.htm` API.
+This repository contains substantial modifications for the current NBS website API
+under `https://data.stats.gov.cn/dg/website/publicrelease/web/external/...`.
+
+The original MIT license is retained in `LICENSE`.
