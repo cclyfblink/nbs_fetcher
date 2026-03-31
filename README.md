@@ -1,6 +1,6 @@
 # nbs_fetcher
 
-`nbs_fetcher` 是面向国家统计局新版数据站点 `data.stats.gov.cn` 的 Python 抓取工具，当前适配以下接口族：
+`nbs_fetcher` 是面向 **国家统计局国家数据平台**（`https://data.stats.gov.cn`）的 Python 数据抓取工具。
 
 - `queryIndexTreeAsync`
 - `queryIndicatorsByCid`
@@ -19,25 +19,81 @@
 > [!NOTE]
 > 看不懂？把这个仓库发给AI，让它帮你做吧。
 
-## 项目边界
+## 适用站点
 
-本项目基于 MIT 协议项目 `songjian/cnstats` 改造，但目标已经切换到新版国家统计局站点。
+当前项目的适用范围可以明确框定为：
 
-当前实现不再兼容旧版 `easyquery.htm` 查询模型，也不保留旧参数体系：
+- 站点根域名：`https://data.stats.gov.cn`
+- 页面入口：`https://data.stats.gov.cn/dg/website/page.html#/pc/national/` 下的页面
+- 接口前缀：`https://data.stats.gov.cn/dg/website/publicrelease/web/external/new/`
 
-- `zbcode`
-- `dbcode`
-- `regcode`
-- `datestr`
+也就是说，`nbs_fetcher` 当前只用于**国家统计局国家数据平台网页端国家数据入口**下、由上述 `external/new` 接口族驱动的数据目录浏览和表格数据提取。
 
-对外公开的参数模型已重构为：
+当前代码中硬编码的 base URL 为：
 
-- `page`
-- `path`
-- `series`
-- `areas`
-- `dts`
-- `sequence`
+```python
+BASE_URL = "https://data.stats.gov.cn"
+```
+
+典型页面入口包括：
+
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/monthData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/quarterData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/yearData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/fsMonthData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/fsQuarterData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/fsYearData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/mainMonthData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/mainYearData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/gatMonthData`
+- `https://data.stats.gov.cn/dg/website/page.html#/pc/national/gatYearData`
+
+所有网络请求都限定在这些页面背后的 `/dg/website/publicrelease/web/external/new/` 接口上，不包含站点其他栏目、下载页或门户内容。
+
+### 适配的接口
+
+当前已适配以下接口族：
+
+| 接口 | 对应功能 |
+|------|------|
+| `queryIndexTreeAsync` | 获取页面目录树 |
+| `queryIndicatorsByCid` | 查询指定目录下的指标列表 |
+| `queryDtByCid` | 查询可用时间点 |
+| `getDaCatalogTreeByIndicatorCid` | 查询数据目录树 |
+| `getDasByDaCatalogId` | 查询数据维度值 |
+| `getEsDataByCidAndDt` | 获取底层数据表 |
+
+### 不适配的范围
+
+- 不适配 `https://www.stats.gov.cn/` 门户站本身，包括新闻、公报、统计年鉴说明页、制度文件、下载页等内容。
+- 不适配旧版国家统计局查询接口，例如历史上的 `easyquery.htm` / `stats.gov.cn/sjj` 体系。
+- 不适配 `data.stats.gov.cn` 站内未接入当前页面模型的其他栏目、专题页或人工下载入口。
+- 不适配 `data.stats.gov.cn` 以外的任何子域名或第三方镜像站点。
+- 不做网页账号登录、验证码处理、附件下载自动化、Excel 批处理、PDF 解析、ETL 落库等站点外延能力。
+- 当前项目的能力边界就是：**对 `https://data.stats.gov.cn/dg/website/page.html#/pc/national/...` 页面所调用的 `external/new` 接口做自动化提取**。
+- 不提供旧版 `easyquery.htm` 接口的兼容层。
+- CLI `--output` 当前仅支持写入 JSON 文本，不支持 CSV/XLSX/Parquet 导出。
+
+### 已适配的页面
+
+| page | 页面入口后缀 | 含义 |
+|------|----------------|------|
+| `monthData` | `/monthData` | 全国月度数据 |
+| `quarterData` | `/quarterData` | 全国季度数据 |
+| `yearData` | `/yearData` | 全国年度数据 |
+| `fsMonthData` | `/fsMonthData` | 分省月度数据 |
+| `fsQuarterData` | `/fsQuarterData` | 分省季度数据 |
+| `fsYearData` | `/fsYearData` | 分省年度数据 |
+| `mainMonthData` | `/mainMonthData` | 主要城市月度价格 |
+| `mainYearData` | `/mainYearData` | 主要城市年度数据 |
+| `gatMonthData` | `/gatMonthData` | 港澳台月度数据 |
+| `gatYearData` | `/gatYearData` | 港澳台年度数据 |
+
+完整页面 URL 的拼接形式为：
+
+```text
+https://data.stats.gov.cn/dg/website/page.html#/pc/national/{page}
+```
 
 ## 法律与合规提示
 
