@@ -1,187 +1,597 @@
 # PARAMETERS
 
-This document describes the current public parameter model of `nbs_fetcher`.
+`nbs_fetcher` 对外参数参考。
 
-## Public query model
+本文档覆盖：参数含义、输入类型、允许值、推荐写法，以及各类页面可直接使用的地区代码与时间格式。
 
-`nbs_fetcher` does not expose the retired `zbcode/dbcode/regcode/datestr` model.
-
-It uses the current NBS website concepts instead:
-
-- `page`
-- `path`
-- `series`
-- `areas`
-- `dts`
-- `sequence`
+---
 
 ## page
 
-Page family name.
+数据页面类型。该参数决定所访问的页面族、频率以及是否包含地区维度。
 
-Currently registered pages:
+### 可输入值
 
-- `monthData`
-- `quarterData`
-- `yearData`
-- `fsMonthData`
-- `fsQuarterData`
-- `fsYearData`
-- `mainMonthData`
-- `mainYearData`
-- `gatMonthData`
-- `gatYearData`
+| page 名 | 含义 | 频率 | 是否带地区 | 说明 |
+|---------|------|------|-----------|------|
+| `monthData` | 全国月度数据 | 月度 | 否 | 只有全国汇总，没有分省 |
+| `quarterData` | 全国季度数据 | 季度 | 否 | 只有全国汇总，没有分省 |
+| `yearData` | 全国年度数据 | 年度 | 否 | 只有全国汇总，没有分省 |
+| `fsMonthData` | 分省月度数据 | 月度 | **是** | 各省的月度数据 |
+| `fsQuarterData` | 分省季度数据 | 季度 | **是** | 各省的季度数据 |
+| `fsYearData` | 分省年度数据 | 年度 | **是** | 各省的年度数据 |
+| `mainMonthData` | 主要城市月度价格 | 月度 | **是** | 城市级别的价格数据。别名 `gjscMonthPrice` |
+| `mainYearData` | 主要城市年度数据 | 年度 | **是** | 城市级别年度数据 |
+| `gatMonthData` | 港澳台月度数据 | 月度 | **是** | 香港、澳门、台湾的月度数据 |
+| `gatYearData` | 港澳台年度数据 | 年度 | **是** | 香港、澳门、台湾的年度数据 |
 
-These map internally to NBS page codes `1..10`.
+### 选择规则
+
+- 全国汇总数据：`monthData` / `quarterData` / `yearData`
+- 分省数据：`fsMonthData` / `fsQuarterData` / `fsYearData`
+- 主要城市价格数据：`mainMonthData`
+- 港澳台数据：`gatMonthData` / `gatYearData`
+
+### 示例
+
+```python
+page="fsMonthData"
+```
+
+- 类型：`str`
+- 必填：是
+
+---
 
 ## path
 
-Catalogue path under a page.
+目录路径，对应 NBS 页面左侧树形目录中的节点层级。
 
-Examples:
+### 可输入形式
 
-- `能源`
-- `能源/能源主要产品产量/发电量`
+**字符串（斜杠分隔）：**
 
-`path` can be given as:
+```python
+path="能源/能源主要产品产量/发电量"
+```
 
-- a slash-delimited string
-- a list of segments
+**列表：**
 
-Internally, `path` is resolved to a live `cid` and cached in memory.
+```python
+path=["能源", "能源主要产品产量", "发电量"]
+```
+
+两种写法等价。静态查询建议使用字符串；动态拼接时可使用列表。
+
+### 确认方法
+
+建议通过 `tree()` 逐层确认路径：
+
+```python
+from nbs_fetcher import tree
+
+tree("fsMonthData", path="能源")           # 看到一级子目录
+tree("fsMonthData", path="能源/能源主要产品产量")  # 继续往下
+```
+
+### 常见 path 示例（以 `fsMonthData` 为例）
+
+| path | 含义 |
+|------|------|
+| `能源` | 能源大类 |
+| `能源/能源主要产品产量` | 能源主要产品产量 |
+| `能源/能源主要产品产量/发电量` | 发电量 |
+| `能源/能源主要产品产量/火力发电量` | 火力发电量 |
+| `能源/能源主要产品产量/水力发电量` | 水力发电量 |
+
+> 不同 `page` 的目录树彼此独立。`fsMonthData` 下可用的路径，不能直接用于 `monthData`。
+
+- 类型：`str` 或 `list[str]`
+- 必填：通常是（除非你直接传 `cid`）
+- 注意：`path` 和 `cid` 至少要提供一个
+
+---
 
 ## series
 
-Indicator selection under a resolved catalogue leaf.
+指标序列类型。用于指定同一目录节点下需要抓取的数值列。
 
-Accepted forms:
+### 归一化序列值
 
-- `all`
-- indicator id
-- exact indicator label
-- normalized series type such as:
-  - `current_value`
-  - `cumulative_value`
-  - `yoy_growth`
-  - `cumulative_growth`
+| series 名 | 含义 | 说明 |
+|-----------|------|------|
+| `current_value` | 当期值 | 本期绝对量 |
+| `cumulative_value` | 累计值 | 从年初到当期的累计绝对量 |
+| `yoy_growth` | 同比增长 | 与上年同期相比的增速，通常是 % |
+| `cumulative_growth` | 累计增长 | 累计值的同比增速，通常是 % |
 
-Important note:
+### 支持写法
 
-- In some layouts such as `sequence="area"`, the NBS API only returns one indicator per request.
-- `nbs_fetcher` handles this by issuing one request per series and merging locally.
+列表，推荐：
+
+```python
+series=["current_value", "cumulative_value"]
+```
+
+单个字符串：
+
+```python
+series="current_value"
+```
+
+逗号分隔字符串：
+
+```python
+series="current_value,cumulative_value"
+```
+
+全部序列：
+
+```python
+series="all"
+```
+
+指标 id：
+
+```python
+series="84db18796d0147028deada513f1ef521"
+```
+
+### 确认方法
+
+用 `indicators()` 查看：
+
+```python
+from nbs_fetcher import indicators
+
+items = indicators("fsMonthData", path="能源/能源主要产品产量/发电量")
+for item in items:
+    print(item["series_type"], item["label"])
+```
+
+- 类型：`str` 或 `list[str]`
+- 必填：否；不传时默认抓取该路径下所有可识别序列
+
+---
 
 ## areas
 
-Area filter.
+地区筛选参数。仅对带地区维度的页面生效。
 
-Accepted forms:
+### 可输入值
 
-- `all`
-- Chinese area name such as `北京市`
-- 12-digit API area code such as `110000000000`
-- 6-digit province code such as `110000`
+#### 特殊值
 
-`nbs_fetcher` resolves and normalizes them to the live `das` payload format.
+| 输入 | 含义 |
+|------|------|
+| `"all"` | 当前路径下所有可用地区 |
 
-### 6-digit area support
+#### 分省页面（fsMonthData / fsQuarterData / fsYearData）的地区
 
-For area pages, the current NBS API uses 12-digit codes.
+以下三种写法等价：
 
-Example:
+| 6 位代码 | 12 位代码 | 中文名 |
+|---------|----------|--------|
+| `"110000"` | `"110000000000"` | `"北京市"` |
+| `"120000"` | `"120000000000"` | `"天津市"` |
+| `"130000"` | `"130000000000"` | `"河北省"` |
+| `"140000"` | `"140000000000"` | `"山西省"` |
+| `"150000"` | `"150000000000"` | `"内蒙古自治区"` |
+| `"210000"` | `"210000000000"` | `"辽宁省"` |
+| `"220000"` | `"220000000000"` | `"吉林省"` |
+| `"230000"` | `"230000000000"` | `"黑龙江省"` |
+| `"310000"` | `"310000000000"` | `"上海市"` |
+| `"320000"` | `"320000000000"` | `"江苏省"` |
+| `"330000"` | `"330000000000"` | `"浙江省"` |
+| `"340000"` | `"340000000000"` | `"安徽省"` |
+| `"350000"` | `"350000000000"` | `"福建省"` |
+| `"360000"` | `"360000000000"` | `"江西省"` |
+| `"370000"` | `"370000000000"` | `"山东省"` |
+| `"410000"` | `"410000000000"` | `"河南省"` |
+| `"420000"` | `"420000000000"` | `"湖北省"` |
+| `"430000"` | `"430000000000"` | `"湖南省"` |
+| `"440000"` | `"440000000000"` | `"广东省"` |
+| `"450000"` | `"450000000000"` | `"广西壮族自治区"` |
+| `"460000"` | `"460000000000"` | `"海南省"` |
+| `"500000"` | `"500000000000"` | `"重庆市"` |
+| `"510000"` | `"510000000000"` | `"四川省"` |
+| `"520000"` | `"520000000000"` | `"贵州省"` |
+| `"530000"` | `"530000000000"` | `"云南省"` |
+| `"540000"` | `"540000000000"` | `"西藏自治区"` |
+| `"610000"` | `"610000000000"` | `"陕西省"` |
+| `"620000"` | `"620000000000"` | `"甘肃省"` |
+| `"630000"` | `"630000000000"` | `"青海省"` |
+| `"640000"` | `"640000000000"` | `"宁夏回族自治区"` |
+| `"650000"` | `"650000000000"` | `"新疆维吾尔自治区"` |
 
-- Beijing API code: `110000000000`
-- Beijing normalized 6-digit code: `110000`
+> 分省页面建议优先使用 6 位行政区划代码。
 
-`nbs_fetcher` accepts the 6-digit province code and maps it to the live 12-digit value.
+#### 主要城市页面（`mainMonthData` / `mainYearData`）
+
+`mainMonthData` 和 `mainYearData` 使用主要城市维度。根据原 `cnstats` 项目公开代码表，可直接使用以下 6 位城市代码。
+
+| 代码 | 城市 |
+|------|------|
+| `110000` | 北京 |
+| `120000` | 天津 |
+| `130100` | 石家庄 |
+| `130200` | 唐山 |
+| `130300` | 秦皇岛 |
+| `140100` | 太原 |
+| `150100` | 呼和浩特 |
+| `150200` | 包头 |
+| `210100` | 沈阳 |
+| `210200` | 大连 |
+| `210600` | 丹东 |
+| `210700` | 锦州 |
+| `220100` | 长春 |
+| `220200` | 吉林 |
+| `230100` | 哈尔滨 |
+| `231000` | 牡丹江 |
+| `310000` | 上海 |
+| `320100` | 南京 |
+| `320200` | 无锡 |
+| `320300` | 徐州 |
+| `321000` | 扬州 |
+| `330100` | 杭州 |
+| `330200` | 宁波 |
+| `330300` | 温州 |
+| `330700` | 金华 |
+| `340100` | 合肥 |
+| `340300` | 蚌埠 |
+| `340800` | 安庆 |
+| `350100` | 福州 |
+| `350200` | 厦门 |
+| `350500` | 泉州 |
+| `360100` | 南昌 |
+| `360400` | 九江 |
+| `360700` | 赣州 |
+| `370100` | 济南 |
+| `370200` | 青岛 |
+| `370600` | 烟台 |
+| `370800` | 济宁 |
+| `410100` | 郑州 |
+| `410300` | 洛阳 |
+| `410400` | 平顶山 |
+| `420100` | 武汉 |
+| `420500` | 宜昌 |
+| `420600` | 襄阳 |
+| `430100` | 长沙 |
+| `430600` | 岳阳 |
+| `430700` | 常德 |
+| `440100` | 广州 |
+| `440200` | 韶关 |
+| `440300` | 深圳 |
+| `440800` | 湛江 |
+| `441300` | 惠州 |
+| `450100` | 南宁 |
+| `450300` | 桂林 |
+| `450500` | 北海 |
+| `460100` | 海口 |
+| `460200` | 三亚 |
+| `500000` | 重庆 |
+| `510100` | 成都 |
+| `510500` | 泸州 |
+| `511300` | 南充 |
+| `520100` | 贵阳 |
+| `520300` | 遵义 |
+| `530100` | 昆明 |
+| `532900` | 大理 |
+| `540100` | 拉萨 |
+| `610100` | 西安 |
+| `620100` | 兰州 |
+| `630100` | 西宁 |
+| `640100` | 银川 |
+| `650100` | 乌鲁木齐 |
+
+补充说明：
+
+- 这张表可直接作为 `areas` 参数输入值使用
+- `mainMonthData` 的当前常见目录主要集中在 `价格` 分类下
+- `mainYearData` 的页面范围更广，包含 `国民经济核算`、`人口和就业`、`财政和金融`、`运输和邮电`、`贸易经济`、`教育、卫生、文化` 等年度主题
+- 若某个具体路径下接口返回的城市集合与上表不完全一致，应以该路径的实时返回为准
+
+#### 港澳台页面（`gatMonthData` / `gatYearData`）
+
+`gatMonthData` 和 `gatYearData` 的页面结构已做实测。
+
+`gatMonthData` 当前首页一级目录包括：
+
+| 路径 | 说明 |
+|------|------|
+| `国民经济核算` | 一级叶子目录 |
+| `货币` | 一级叶子目录 |
+| `贸易` | 一级叶子目录 |
+| `经济` | 一级叶子目录 |
+
+`gatYearData` 当前首页一级目录包括：
+
+| 路径 | 说明 |
+|------|------|
+| `人口` | 一级叶子目录 |
+| `劳动力与就业` | 一级叶子目录 |
+| `贫困与收入` | 一级叶子目录 |
+| `教育` | 一级叶子目录 |
+| `卫生` | 一级叶子目录 |
+| `能源生产和使用` | 一级叶子目录 |
+| `经济` | 非叶子目录，可继续下钻 |
+| `贸易` | 一级叶子目录 |
+| `政府财政` | 一级叶子目录 |
+| `货币` | 一级叶子目录 |
+| `投资环境` | 一级叶子目录 |
+| `金融` | 一级叶子目录 |
+| `交通和通讯` | 一级叶子目录 |
+| `信息科技` | 一级叶子目录 |
+| `旅游` | 一级叶子目录 |
+
+`gatYearData` 中 `经济` 目录继续展开后，当前实测可见：
+
+| 路径 | 说明 |
+|------|------|
+| `经济/国民账户 (现价，本币)` | 叶子目录 |
+| `经济/国民账户 (现价，美元)` | 叶子目录 |
+| `经济/国民账户 (2000年不变价，美元)` | 叶子目录 |
+| `经济/国民帐户 (年增长率)` | 叶子目录 |
+| `经济/国民帐户 (所占比例)` | 叶子目录 |
+| `经济/国民账户 (现价，按购买力评价计算)` | 叶子目录 |
+| `经济/国内生产总值产业构成` | 叶子目录 |
+
+关于地区值：
+
+- 这两类页面在当前实测下，`areas()` 未稳定返回独立地区列表
+- 从页面语义看，实际地区范围对应港澳台实体
+- 在文档层面，建议将这两类页面理解为“港澳台专题页”，而不是复用分省页那套地区代码表
+- 如果后续某个具体路径能够稳定返回 `areas()`，再补充为固定附录更稳妥
+
+#### 全国页面（`monthData` / `quarterData` / `yearData`）
+
+该类页面不带地区维度；即使传入 `areas`，内部也会回退到全国默认值。
+
+### 多地区写法
+
+```python
+areas=["110000", "120000", "130000"]  # 列表
+```
+
+- 类型：`str` 或 `list[str]`
+- 必填：否；不传时行为取决于 `page` 和 `sequence`
+
+---
 
 ## dts
 
-Date range filter.
+时间范围参数。
 
-Accepted public forms:
+### 输入格式
 
-- month: `201501-202602`
-- year: `2015-2024`
-- quarter: `2015Q1-2024Q4`
+| 频率 | 格式 | 示例 |
+|------|------|------|
+| 月度 | `YYYYMM-YYYYMM` | `"201501-202602"` |
+| 季度 | `YYYYQN-YYYYQN` | `"2020Q1-2024Q4"` |
+| 年度 | `YYYY-YYYY` | `"2015-2024"` |
 
-Internally these become current NBS API tokens such as:
+### 写法示例
 
-- month: `201501MM-202602MM`
-- year: `2015YY-2024YY`
-- quarter: `201501SS-202404SS`
+月度：
 
-For the API request, `dts` is sent as a list.
-
-Example:
-
-```json
-["201501MM-202602MM"]
+```python
+dts="201501-202602"   # 2015年1月 到 2026年2月
+dts="202401-202412"   # 只查 2024 年
 ```
 
-If omitted, the fetcher sends an empty value and lets the site default behavior decide the window.
+季度：
+
+```python
+dts="2020Q1-2024Q4"
+```
+
+年度：
+
+```python
+dts="2015-2024"
+```
+
+多段区间：
+
+```python
+dts=["201501-201912", "202001-202412"]
+```
+
+### 常见格式错误
+
+- 月度不要加横杠：`"2024-01"` → 应写 `"202401"`
+- 季度用大写 Q：`"2024q1"` → 应写 `"2024Q1"`
+- 年度不要加后缀：`"2015YY"` → 应写 `"2015"`
+
+内部会自动转换为 NBS 接口所需 token。
+
+- 类型：`str` 或 `list[str]`
+- 必填：否；不传时由 NBS 站点返回默认时间窗口
+
+---
 
 ## sequence
 
-Matrix focus dimension.
+结果展开维度，对应底层接口 `showType`。
 
-Accepted values:
+### 可输入值
 
-- `area`
-- `date`
-- `target`
+| sequence | 含义 | 说明 |
+|----------|------|------|
+| `"area"` | 按地区展开 | 每行是一个地区，列是时间点。**最常用** |
+| `"date"` | 按时间展开 | 每行是一个时间点，列是地区 |
+| `"target"` | 按指标展开 | 每行是一个指标，列是时间点 |
 
-This is converted internally to the current NBS `showType` value:
+### 选择建议
 
-- `target` -> `1`
-- `date` -> `2`
-- `area` -> `3`
+多数场景下使用 `"area"` 即可。
 
-## Internal parameters
+```python
+sequence="area"
+```
 
-These are not the preferred public API, but are important internally:
+- 类型：`str`
+- 必填：否。默认 `"area"`
 
-- `cid`
-- `indicatorIds`
-- `daCatalogId`
-- `das`
-- `showType`
-- `rootId`
+---
 
-## Output formats
+## format
 
-`fetch(..., format=...)` supports:
+返回结果格式。
 
-- `raw`
-- `records`
-- `matrix`
+### 允许值
 
-### raw
+| format | 含义 | 返回结构 | 适合场景 |
+|--------|------|---------|---------|
+| `"records"` | 明细记录 | 每行一条记录，含页面、序列、地区、时间和值等字段 | 分析、清洗、落表 |
+| `"matrix"` | 横表矩阵 | 地区或指标为行索引，时间为列 | 导出横表、人工核对 |
+| `"raw"` | 原始响应 | 包含请求体和响应体 | 调试、排查接口变化 |
 
-Returns a structured object containing:
+### 示例
 
-- page metadata
-- requested series
-- requested areas
-- requested dts
-- one raw response per series request
+```python
+format="records"   # 做分析用
+format="matrix"    # 看横表用
+format="raw"       # 调试用
+```
 
-### records
+设置 `as_df=True` 时可直接返回 DataFrame：
 
-Returns a structured object containing:
+```python
+df = fetch(..., format="records", as_df=True)   # tidy DataFrame
+df = fetch(..., format="matrix", as_df=True)    # 宽表 DataFrame
+```
 
-- metadata
-- row count
-- period list
-- normalized tidy `records`
+- 类型：`str`
+- 必填：否。默认 `"records"`
 
-If `as_df=True`, only the tidy `DataFrame` is returned.
+### records 输出字段
 
-### matrix
+| 字段 | 含义 |
+|------|------|
+| `page` | 页面名，如 `fsMonthData` |
+| `page_label` | 页面中文名，如 `分省月度数据` |
+| `frequency` | 频率，如 `month` |
+| `cid` | 目录节点 id |
+| `root_id` | 页面根节点 id |
+| `period_code` | 时间编码，如 `202401` |
+| `series_type` | 序列类型，如 `current_value` |
+| `indicator_id` | 指标 id |
+| `indicator_label` | 指标中文名 |
+| `unit` | 单位 |
+| `area_name` | 地区名称 |
+| `area_code` | 12 位地区码 |
+| `area_code6` | 6 位地区码 |
+| `value` | 数值 |
 
-Returns a structured object containing:
+---
 
-- metadata
-- period list
-- `matrix`
+## as_df
 
-If `as_df=True`, only the matrix `DataFrame` is returned.
+是否直接返回 `pandas.DataFrame`。
+
+### 可输入值
+
+| 值 | 含义 |
+|----|------|
+| `False` | 返回字典（默认） |
+| `True` | 返回 DataFrame |
+
+```python
+df = fetch("fsMonthData", path="能源/能源主要产品产量/发电量",
+           series="current_value", areas="all", dts="202401-202412",
+           as_df=True)
+```
+
+- 类型：`bool`
+- 必填：否。默认 `False`
+
+---
+
+## output（CLI 参数）
+
+输出文件路径。该参数仅用于 CLI，即：
+
+```bash
+python -m nbs_fetcher ... --output output.json
+```
+
+### 当前正式支持的文件格式
+
+| 文件扩展名 | 是否正式支持 | 实际写入内容 |
+|------------|--------------|--------------|
+| `.json` | 是 | JSON 文本 |
+| `.csv` | 否 | 仍然写入 JSON 文本 |
+| `.xlsx` | 否 | 仍然写入 JSON 文本 |
+| `.parquet` | 否 | 仍然写入 JSON 文本 |
+| 其他任意扩展名 | 否 | 仍然写入 JSON 文本 |
+
+### 输出规则
+
+- 当结果是结构化字典时，写入 JSON 对象
+- 当结果是 `DataFrame` 时，写入 `orient="records"` 的 JSON 数组
+- 编码固定为 `UTF-8`
+- 当前不会根据文件扩展名自动切换导出器
+
+### 推荐写法
+
+```bash
+python -m nbs_fetcher fetch fsMonthData --path "能源/能源主要产品产量/发电量" --series current_value --areas all --dts 202401-202412 --format records --output output.json
+```
+
+### 不推荐写法
+
+以下写法在当前版本中会造成“文件名像 CSV/XLSX，但文件内容其实是 JSON”的情况：
+
+```bash
+--output output.csv
+--output output.xlsx
+--output output.parquet
+```
+
+如果后续需要真正导出为 CSV、Excel 或 Parquet，应在代码中新增对应导出逻辑，而不是仅修改文件扩展名。
+
+---
+
+## cid（高级用法）
+
+目录节点唯一 id。常规使用中无需手动维护，传入 `path` 即可由程序自动解析。
+
+仅在已知节点 id 的情况下，才建议直接传入 `cid` 以跳过路径解析。
+
+```python
+fetch("fsMonthData", cid="某个id", series="current_value", areas="all")
+```
+
+- 类型：`str`
+- 必填：`path` 和 `cid` 至少提供一个
+
+---
+
+## fetch() 全参数速查表
+
+| 参数 | 类型 | 必填 | 默认值 | 含义 |
+|------|------|------|--------|------|
+| `page` | `str` | 是 | — | 数据页面，见上方 page 表 |
+| `path` | `str` 或 `list[str]` | 通常 | — | 目录路径 |
+| `cid` | `str` | 否 | — | 目录节点 id（与 path 二选一） |
+| `series` | `str` 或 `list[str]` | 否 | 全部序列 | 指标序列，见上方 series 表 |
+| `areas` | `str` 或 `list[str]` | 否 | 取决于 sequence | 地区筛选，见上方地区表 |
+| `dts` | `str` 或 `list[str]` | 否 | NBS 默认 | 时间范围，见上方 dts 格式 |
+| `sequence` | `str` | 否 | `"area"` | 展开维度：`area` / `date` / `target` |
+| `format` | `str` | 否 | `"records"` | 输出格式：`records` / `matrix` / `raw` |
+| `as_df` | `bool` | 否 | `False` | 是否返回 DataFrame |
+
+---
+
+## 其他可用函数
+
+| 函数 | 用途 | 必要参数 |
+|------|------|---------|
+| `list_pages()` | 列出所有页面信息 | 无 |
+| `tree(page, path)` | 浏览目录树 | `page` |
+| `indicators(page, path)` | 查看指标序列 | `page` + `path` 或 `cid` |
+| `areas(page, path, series)` | 查看可选地区 | `page` + `path` 或 `cid` |
+| `dates(page, path)` | 查看可用时间点 | `page` + `path` 或 `cid` |
+
+这些函数默认共享同一个内部 client，同一次运行中会复用缓存。

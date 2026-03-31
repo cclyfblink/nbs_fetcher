@@ -28,7 +28,7 @@ def _dump_result(result: Any, output: str | None) -> None:
         records = result
 
     if not records:
-        print("No data")
+        print("无数据")
         return
 
     if isinstance(records, dict):
@@ -51,40 +51,50 @@ def _dump_result(result: Any, output: str | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="nbs-fetcher",
-        description="Fetch data from the current National Bureau of Statistics website API.",
+        description="获取当前国家统计局网站新版接口数据。",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    pages_parser = subparsers.add_parser("pages", help="List supported page families")
+    pages_parser = subparsers.add_parser("pages", help="列出当前支持的页面族")
 
-    tree_parser = subparsers.add_parser("tree", help="List catalogue tree nodes")
+    tree_parser = subparsers.add_parser("tree", help="列出目录树节点")
     tree_parser.add_argument("page")
-    tree_parser.add_argument("--path")
-    tree_parser.add_argument("--pid", default="")
+    tree_parser.add_argument("--path", help="从这个目录路径继续展开，例如 能源/能源主要产品产量")
+    tree_parser.add_argument("--pid", default="", help="直接指定父节点 pid；通常不需要手动传")
 
-    indicators_parser = subparsers.add_parser("indicators", help="List indicators under a catalogue path")
+    indicators_parser = subparsers.add_parser("indicators", help="列出目录路径下的指标序列")
     indicators_parser.add_argument("page")
-    indicators_parser.add_argument("--path", required=True)
+    indicators_parser.add_argument("--path", required=True, help="完整目录路径，例如 能源/能源主要产品产量/发电量")
 
-    areas_parser = subparsers.add_parser("areas", help="List available areas for a catalogue path")
+    areas_parser = subparsers.add_parser("areas", help="列出目录路径下可用的地区")
     areas_parser.add_argument("page")
-    areas_parser.add_argument("--path", required=True)
-    areas_parser.add_argument("--series")
+    areas_parser.add_argument("--path", required=True, help="完整目录路径，例如 能源/能源主要产品产量/发电量")
+    areas_parser.add_argument("--series", help="可选，指定某个序列，例如 current_value")
 
-    dates_parser = subparsers.add_parser("dates", help="Show date metadata for a catalogue path")
+    dates_parser = subparsers.add_parser("dates", help="查看目录路径下的时间元数据")
     dates_parser.add_argument("page")
-    dates_parser.add_argument("--path", required=True)
+    dates_parser.add_argument("--path", required=True, help="完整目录路径，例如 能源/能源主要产品产量/发电量")
 
-    fetch_parser = subparsers.add_parser("fetch", help="Fetch table data")
+    fetch_parser = subparsers.add_parser("fetch", help="抓取表格数据")
     fetch_parser.add_argument("page")
-    fetch_parser.add_argument("--path", required=True)
-    fetch_parser.add_argument("--series")
-    fetch_parser.add_argument("--areas")
-    fetch_parser.add_argument("--dts")
-    fetch_parser.add_argument("--sequence", default="area", choices=["area", "date", "target"])
-    fetch_parser.add_argument("--format", default="records", choices=["records", "matrix", "raw"])
-    fetch_parser.add_argument("--as-df", action="store_true")
-    fetch_parser.add_argument("--output")
+    fetch_parser.add_argument("--path", required=True, help="完整目录路径，例如 能源/能源主要产品产量/发电量")
+    fetch_parser.add_argument("--series", help="序列，可传单个值、逗号分隔值，或 all")
+    fetch_parser.add_argument("--areas", help="地区，可传 all、中文地区名、12 位地区码或 6 位省级代码")
+    fetch_parser.add_argument("--dts", help="时间范围，例如 201501-202602、2015-2024、2020Q1-2024Q4")
+    fetch_parser.add_argument(
+        "--sequence",
+        default="area",
+        choices=["area", "date", "target"],
+        help="矩阵展开维度，默认按地区展开",
+    )
+    fetch_parser.add_argument(
+        "--format",
+        default="records",
+        choices=["records", "matrix", "raw"],
+        help="输出结构，默认 records",
+    )
+    fetch_parser.add_argument("--as-df", action="store_true", help="以 DataFrame 结构返回，仅适用于 Python 调用")
+    fetch_parser.add_argument("--output", help="把结果写入指定文件路径")
 
     args = parser.parse_args()
     client = NBSFetcher()

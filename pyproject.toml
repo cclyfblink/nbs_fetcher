@@ -1,7 +1,7 @@
 [project]
 name = "nbs-fetcher"
 version = "0.1.0"
-description = "Fetch data from the current National Bureau of Statistics website API."
+description = "获取当前国家统计局网站新版接口数据。"
 readme = "README.md"
 authors = [
     { name = "RETracker Team" }
@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/RETracker/nbs_fetcher"
+Homepage = "https://github.com/cclyfblink/nbs_fetcher"
 
 [project.scripts]
 nbs-fetcher = "nbs_fetcher.__main__:main"

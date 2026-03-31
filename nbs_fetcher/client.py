@@ -38,6 +38,13 @@ class NBSFetcher:
         self._indicators_cache: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
         self._areas_cache: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
 
+    def clear_cache(self) -> None:
+        self._root_nodes_cache.clear()
+        self._root_id_cache.clear()
+        self._path_cache.clear()
+        self._indicators_cache.clear()
+        self._areas_cache.clear()
+
     def _headers(self, page: str) -> dict[str, str]:
         headers = dict(DEFAULT_HEADERS)
         headers["Referer"] = f"{self.base_url}/dg/website/page.html#/pc/national/{page}"
@@ -557,16 +564,26 @@ class NBSFetcher:
         return normalized
 
 
+_DEFAULT_CLIENT: NBSFetcher | None = None
+
+
+def get_default_client() -> NBSFetcher:
+    global _DEFAULT_CLIENT
+    if _DEFAULT_CLIENT is None:
+        _DEFAULT_CLIENT = NBSFetcher()
+    return _DEFAULT_CLIENT
+
+
 def list_pages() -> list[dict[str, Any]]:
-    return NBSFetcher().list_pages()
+    return get_default_client().list_pages()
 
 
 def tree(page: str, path: str | Iterable[str] | None = None, pid: str = "") -> list[dict[str, Any]]:
-    return NBSFetcher().tree(page, path=path, pid=pid)
+    return get_default_client().tree(page, path=path, pid=pid)
 
 
 def indicators(page: str, path: str | Iterable[str] | None = None, cid: str | None = None) -> list[dict[str, Any]]:
-    return NBSFetcher().indicators(page, path=path, cid=cid)
+    return get_default_client().indicators(page, path=path, cid=cid)
 
 
 def areas(
@@ -575,11 +592,11 @@ def areas(
     cid: str | None = None,
     series: str | None = None,
 ) -> list[dict[str, Any]]:
-    return NBSFetcher().areas(page, path=path, cid=cid, series=series)
+    return get_default_client().areas(page, path=path, cid=cid, series=series)
 
 
 def dates(page: str, path: str | Iterable[str] | None = None, cid: str | None = None) -> dict[str, Any]:
-    return NBSFetcher().dates(page, path=path, cid=cid)
+    return get_default_client().dates(page, path=path, cid=cid)
 
 
 def fetch(
@@ -587,4 +604,4 @@ def fetch(
     path: str | Iterable[str] | None = None,
     **kwargs: Any,
 ) -> Any:
-    return NBSFetcher().fetch(page, path=path, **kwargs)
+    return get_default_client().fetch(page, path=path, **kwargs)
