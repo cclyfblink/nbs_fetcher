@@ -16,3 +16,11 @@ class IndicatorNotFoundError(NBSFetcherError):
 
 class AreaNotFoundError(NBSFetcherError):
     pass
+
+
+class NBSRequestError(NBSFetcherError):
+    pass
+
+
+class NBSChallengeError(NBSRequestError):
+    pass

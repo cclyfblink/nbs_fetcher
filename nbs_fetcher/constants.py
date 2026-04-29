@@ -5,6 +5,17 @@ from dataclasses import asdict, dataclass
 
 BASE_URL = "https://data.stats.gov.cn"
 
+# Browser fingerprint cookie observed from the public NBS data page. Supplying it
+# keeps the lightweight requests client on the same code path as the web UI for
+# most public API calls, without requiring a browser runtime dependency.
+DEFAULT_CLIENT_INFO_COOKIE = (
+    "eyJkZXZpY2UiOiJQQyIsImxhbmd1YWdlIjoiemhfQ04iLCJlbmdpbmUiOiJCbGluayIs"
+    "ImJyb3dzZXIiOiJDaHJvbWUiLCJvcyI6IldpbmRvd3MiLCJvc1ZlcnNpb24iOiIxMC4w"
+    "IiwicGxhdGZvcm0iOiJXaW4zMiIsImlzV2VidmlldyI6ZmFsc2UsImlzQm90Ijpm"
+    "YWxzZSwidmVyc2lvbiI6IjE0Ni4wLjAuMCIsImNvcmUiOiJDaHJvbWUiLCJjb3JlVmVy"
+    "c2lvbiI6IjE0Ni4wLjAuMCJ9"
+)
+
 
 @dataclass(frozen=True)
 class PageSpec:

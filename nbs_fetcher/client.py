@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import time
 from typing import Any, Iterable
 
 import pandas as pd
@@ -8,12 +9,13 @@ import requests
 
 from .constants import (
     BASE_URL,
+    DEFAULT_CLIENT_INFO_COOKIE,
     DEFAULT_FS_PROVINCES,
     DEFAULT_HEADERS,
     DEFAULT_NON_AREA_VALUES,
     PRIMARY_PAGES,
 )
-from .exceptions import AreaNotFoundError, IndicatorNotFoundError, PathNotFoundError
+from .exceptions import AreaNotFoundError, IndicatorNotFoundError, NBSChallengeError, NBSRequestError, PathNotFoundError
 from .utils import (
     coerce_list,
     infer_series_type,
@@ -26,12 +28,26 @@ from .utils import (
 
 
 class NBSFetcher:
-    def __init__(self, base_url: str = BASE_URL, timeout: int = 120, verify: bool = False) -> None:
+    def __init__(
+        self,
+        base_url: str = BASE_URL,
+        timeout: int = 120,
+        verify: bool = False,
+        max_retries: int = 3,
+        retry_backoff: float = 1.5,
+        use_default_client_info: bool = True,
+        client_info_cookie: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.verify = verify
+        self.max_retries = max(1, max_retries)
+        self.retry_backoff = retry_backoff
         self.session = requests.Session()
         self.session.trust_env = False
+        cookie_value = client_info_cookie or (DEFAULT_CLIENT_INFO_COOKIE if use_default_client_info else None)
+        if cookie_value:
+            self.session.cookies.set("client_info", cookie_value, domain="data.stats.gov.cn", path="/")
         self._root_nodes_cache: dict[str, list[dict[str, Any]]] = {}
         self._root_id_cache: dict[str, str] = {}
         self._path_cache: dict[tuple[str, tuple[str, ...]], dict[str, Any]] = {}
@@ -50,27 +66,68 @@ class NBSFetcher:
         headers["Referer"] = f"{self.base_url}/dg/website/page.html#/pc/national/{page}"
         return headers
 
-    def _get(self, path: str, params: dict[str, Any], page: str) -> dict[str, Any]:
-        response = self.session.get(
-            f"{self.base_url}{path}",
-            params=params,
-            headers=self._headers(page),
-            timeout=self.timeout,
-            verify=self.verify,
-        )
+    def _sleep_before_retry(self, attempt: int) -> None:
+        if attempt < self.max_retries - 1 and self.retry_backoff > 0:
+            time.sleep(self.retry_backoff * (attempt + 1))
+
+    def _decode_json_response(self, response: requests.Response, path: str, page: str) -> dict[str, Any]:
         response.raise_for_status()
-        return response.json()
+        response.encoding = "utf-8"
+        text = response.text.lstrip()
+        if text.startswith("<"):
+            snippet = response.text[:240].replace("\n", " ").strip()
+            if "Please enable JavaScript" in response.text or "noscript" in response.text:
+                raise NBSChallengeError(
+                    "NBS returned a JavaScript challenge instead of JSON. "
+                    "Retry later, pass a fresh client_info_cookie, or use the website page to refresh session state. "
+                    f"page={page!r}, path={path!r}, response={snippet!r}"
+                )
+            raise NBSRequestError(
+                f"NBS returned HTML instead of JSON. page={page!r}, path={path!r}, response={snippet!r}"
+            )
+        try:
+            return response.json()
+        except ValueError as exc:
+            snippet = response.text[:240].replace("\n", " ").strip()
+            raise NBSRequestError(
+                f"NBS returned a non-JSON response. page={page!r}, path={path!r}, response={snippet!r}"
+            ) from exc
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        page: str,
+        *,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                response = self.session.request(
+                    method,
+                    f"{self.base_url}{path}",
+                    params=params,
+                    json=payload,
+                    headers=self._headers(page),
+                    timeout=self.timeout,
+                    verify=self.verify,
+                )
+                return self._decode_json_response(response, path, page)
+            except (requests.RequestException, NBSRequestError) as exc:
+                last_error = exc
+                self._sleep_before_retry(attempt)
+
+        if isinstance(last_error, NBSRequestError):
+            raise last_error
+        raise NBSRequestError(f"NBS request failed after {self.max_retries} attempts: {last_error}") from last_error
+
+    def _get(self, path: str, params: dict[str, Any], page: str) -> dict[str, Any]:
+        return self._request_json("GET", path, page, params=params)
 
     def _post(self, path: str, payload: dict[str, Any], page: str) -> dict[str, Any]:
-        response = self.session.post(
-            f"{self.base_url}{path}",
-            json=payload,
-            headers=self._headers(page),
-            timeout=self.timeout,
-            verify=self.verify,
-        )
-        response.raise_for_status()
-        return response.json()
+        return self._request_json("POST", path, page, payload=payload)
 
     def list_pages(self) -> list[dict[str, Any]]:
         pages = []

@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 from tabulate import tabulate
 
 from .client import NBSFetcher
+from .exceptions import NBSChallengeError, NBSFetcherError, NBSRequestError
+
+
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
 
 def _dump_result(result: Any, output: str | None) -> None:
@@ -49,6 +57,7 @@ def _dump_result(result: Any, output: str | None) -> None:
 
 
 def main() -> None:
+    _configure_stdio()
     parser = argparse.ArgumentParser(
         prog="nbs-fetcher",
         description="获取当前国家统计局网站新版接口数据。",
@@ -99,27 +108,38 @@ def main() -> None:
     args = parser.parse_args()
     client = NBSFetcher()
 
-    if args.command == "pages":
-        result = client.list_pages()
-    elif args.command == "tree":
-        result = client.tree(args.page, path=args.path, pid=args.pid)
-    elif args.command == "indicators":
-        result = client.indicators(args.page, path=args.path)
-    elif args.command == "areas":
-        result = client.areas(args.page, path=args.path, series=args.series)
-    elif args.command == "dates":
-        result = client.dates(args.page, path=args.path)
-    else:
-        result = client.fetch(
-            args.page,
-            path=args.path,
-            series=args.series,
-            areas=args.areas,
-            dts=args.dts,
-            sequence=args.sequence,
-            format=args.format,
-            as_df=args.as_df,
-        )
+    try:
+        if args.command == "pages":
+            result = client.list_pages()
+        elif args.command == "tree":
+            result = client.tree(args.page, path=args.path, pid=args.pid)
+        elif args.command == "indicators":
+            result = client.indicators(args.page, path=args.path)
+        elif args.command == "areas":
+            result = client.areas(args.page, path=args.path, series=args.series)
+        elif args.command == "dates":
+            result = client.dates(args.page, path=args.path)
+        else:
+            result = client.fetch(
+                args.page,
+                path=args.path,
+                series=args.series,
+                areas=args.areas,
+                dts=args.dts,
+                sequence=args.sequence,
+                format=args.format,
+                as_df=args.as_df,
+            )
+    except NBSChallengeError as exc:
+        print(f"NBS 请求被站点 JavaScript challenge 拦截：{exc}", file=sys.stderr)
+        print("建议：稍后重试；或在 Python API 中传入 fresh client_info_cookie。", file=sys.stderr)
+        raise SystemExit(2) from exc
+    except NBSRequestError as exc:
+        print(f"NBS 请求失败：{exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    except NBSFetcherError as exc:
+        print(f"nbs_fetcher 参数或解析错误：{exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
 
     _dump_result(result, getattr(args, "output", None))
 

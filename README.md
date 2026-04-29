@@ -409,10 +409,35 @@ python -m nbs_fetcher fetch fsMonthData --path "能源/能源主要产品产量/
 - 顶层函数默认复用同一个内部 client，因此单次运行可共享缓存
 - 对分省页面，外部可直接传 6 位省级代码，内部会映射为新版接口使用的 12 位地区值
 - 某些布局下多个序列会拆成多次请求，再在本地合并结果
+- `NBSFetcher` 默认携带网页端 `client_info` cookie，并对网络错误、非 JSON 响应和站点 JavaScript challenge 做有限重试
+
+### 请求稳定性
+
+国家统计局国家数据站点有时会对裸 HTTP 请求返回 HTML challenge，而不是 JSON。当前版本做了以下处理：
+
+- 默认设置网页端 `client_info` cookie，尽量与页面端请求保持一致
+- 默认最多重试 3 次，带线性退避
+- 识别 `Please enable JavaScript` / `noscript` 等 challenge 页面，并抛出 `NBSChallengeError`
+- CLI 会输出可读错误，不再直接暴露 `JSONDecodeError` traceback
+
+如果仍然遇到 challenge，可在 Python API 中传入从浏览器获取的新 cookie：
+
+```python
+from nbs_fetcher import NBSFetcher
+
+client = NBSFetcher(client_info_cookie="...")
+```
+
+也可以调低或关闭重试：
+
+```python
+client = NBSFetcher(max_retries=1, retry_backoff=0)
+```
 
 ## 已知边界
 
 - 当前默认 `verify=False`，请求时会出现 HTTPS 证书校验告警
+- 默认 `client_info` cookie 是静态网页端指纹，不保证长期有效；若站点策略变化，仍可能需要刷新 cookie 或后续引入浏览器辅助模式
 - `mainMonthData`、`mainYearData`、`gatMonthData`、`gatYearData` 的地区集合依赖实时接口返回，不在代码中固化
 - `areas()` 对城市页和港澳台页优先走实时接口；只有分省页内置了固定省级映射表
 - 本项目不提供旧版 `cnstats` 接口兼容层

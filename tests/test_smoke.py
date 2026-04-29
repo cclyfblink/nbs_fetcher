@@ -1,4 +1,15 @@
 import nbs_fetcher
+import pytest
+import requests
+
+
+def _response(body: str, status_code: int = 200) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = body.encode("utf-8")
+    response.encoding = "utf-8"
+    response.url = "https://data.stats.gov.cn/test"
+    return response
 
 
 def test_import() -> None:
@@ -7,6 +18,24 @@ def test_import() -> None:
 
 def test_version_present() -> None:
     assert isinstance(nbs_fetcher.__version__, str)
+
+
+def test_default_client_info_cookie_is_set() -> None:
+    client = nbs_fetcher.NBSFetcher()
+    assert client.session.cookies.get("client_info", domain="data.stats.gov.cn", path="/")
+
+
+def test_html_challenge_raises_clear_error() -> None:
+    client = nbs_fetcher.NBSFetcher(max_retries=1)
+    html = "<html><body><noscript>Please enable JavaScript and refresh the page.</noscript></body></html>"
+    with pytest.raises(nbs_fetcher.NBSChallengeError):
+        client._decode_json_response(_response(html), "/test", "fsMonthData")
+
+
+def test_non_json_raises_request_error() -> None:
+    client = nbs_fetcher.NBSFetcher(max_retries=1)
+    with pytest.raises(nbs_fetcher.NBSRequestError):
+        client._decode_json_response(_response("not json"), "/test", "fsMonthData")
 
 
 def test_list_pages() -> None:
