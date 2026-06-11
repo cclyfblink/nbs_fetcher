@@ -44,6 +44,11 @@ def normalize_namespaced_label(label: str) -> str:
     return re.sub(r"\s+", " ", label).strip()
 
 
+def normalize_series_label(label: str) -> str:
+    normalized = normalize_namespaced_label(label)
+    return re.sub(r"\s*[\(（][^\)）]*[\)）]\s*$", "", normalized).strip()
+
+
 def _normalize_period_token(token: str, frequency: str) -> str:
     token = token.strip().upper()
     suffix = {"month": "MM", "quarter": "SS", "year": "YY"}[frequency]

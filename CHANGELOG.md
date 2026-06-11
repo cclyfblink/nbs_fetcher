@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.1] - 2026-06-11
+
+### 变更
+- `fetch()` 底层数据表请求切换为当前网页端接口 `stream/esData`。
+- 删除旧数据表接口 `getEsDataByCidAndDt` 的运行路径，不保留旧接口 fallback。
+- `NBSFetcher` 默认启用自动 session 获取，遇到站点 session challenge 时通过 Playwright 获取网页端 cookie 并重试。
+- CLI 新增 `--no-auto-session` 参数，用于调试或关闭自动 session。
+- 指标序列匹配支持省略末尾单位，例如 `火力发电量` 可匹配 `火力发电量 (亿千瓦时)`。
+
+### 新增
+- 新增 Playwright 可选依赖和 Chromium 安装说明。
+- 新增自动 session、`stream/esData`、常用验证命令相关文档。
+- 新增测试覆盖：新数据表 endpoint、自动 cookie 注入、Playwright 缺失提示、空值保留和无单位序列匹配。
+
 ## [0.1.0] - 2026-03-31
 
 ### 变更

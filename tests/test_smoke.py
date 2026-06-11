@@ -38,6 +38,147 @@ def test_non_json_raises_request_error() -> None:
         client._decode_json_response(_response("not json"), "/test", "fsMonthData")
 
 
+def test_browser_cookies_are_installed_on_session() -> None:
+    client = nbs_fetcher.NBSFetcher(auto_session=False, use_default_client_info=False)
+    client._install_browser_cookies(
+        [
+            {
+                "name": "wzws_cid",
+                "value": "abc",
+                "domain": "data.stats.gov.cn",
+                "path": "/",
+            },
+            {
+                "name": "JSESSIONID",
+                "value": "sid",
+                "domain": "data.stats.gov.cn",
+                "path": "/",
+            },
+        ]
+    )
+    assert client.session.cookies.get("wzws_cid", domain="data.stats.gov.cn", path="/") == "abc"
+    assert client.session.cookies.get("JSESSIONID", domain="data.stats.gov.cn", path="/") == "sid"
+
+
+def test_missing_playwright_hint_is_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    import nbs_fetcher.client as client_module
+
+    def raise_missing_playwright(*args, **kwargs):
+        raise RuntimeError("Automatic NBS session bootstrap requires Playwright.")
+
+    monkeypatch.setattr(client_module, "fetch_browser_cookies", raise_missing_playwright)
+    client = nbs_fetcher.NBSFetcher(auto_session=True)
+
+    with pytest.raises(nbs_fetcher.NBSChallengeError, match="Playwright"):
+        client._bootstrap_browser_session("yearData")
+
+
+def test_fetch_uses_stream_es_data_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = nbs_fetcher.NBSFetcher(auto_session=False)
+    called_paths: list[str] = []
+
+    monkeypatch.setattr(client, "root_id", lambda page: "root-id")
+    monkeypatch.setattr(
+        client,
+        "_pick_indicators",
+        lambda page, cid, series: [
+            {
+                "indicator_id": "indicator-id",
+                "series_type": "current_value",
+                "label": "当期值",
+                "unit": "亿千瓦时",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        client,
+        "_resolve_area_values",
+        lambda page, cid, indicator_series, areas, sequence: [{"text": "全国", "value": "000000000000"}],
+    )
+
+    def fake_post(path, payload, page):
+        called_paths.append(path)
+        return {
+            "data": [
+                {
+                    "code": "2024YY",
+                    "values": [
+                        {
+                            "_id": "indicator-id",
+                            "i_showname": "火力发电量",
+                            "du_name": "亿千瓦时",
+                            "area": "全国",
+                            "areaCode": "000000000000",
+                            "value": "63742.63",
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(client, "_post", fake_post)
+    result = client.fetch("yearData", cid="cid", series="current_value", dts="2014-2024")
+
+    assert called_paths == ["/dg/website/publicrelease/web/external/stream/esData"]
+    assert "getEsDataByCidAndDt" not in called_paths[0]
+    assert result["records"][0]["value"] == "63742.63"
+
+
+def test_series_label_matches_without_unit(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = nbs_fetcher.NBSFetcher(auto_session=False)
+    monkeypatch.setattr(
+        client,
+        "indicators",
+        lambda page, path=None, cid=None: [
+            {
+                "indicator_id": "indicator-id",
+                "series_type": "火力发电量",
+                "label": "火力发电量 (亿千瓦时)",
+                "unit": "亿千瓦时",
+            }
+        ],
+    )
+
+    picked = client._pick_indicators("yearData", "cid", "火力发电量")
+
+    assert picked[0]["indicator_id"] == "indicator-id"
+
+
+def test_flatten_response_preserves_blank_values() -> None:
+    client = nbs_fetcher.NBSFetcher(auto_session=False)
+    records = client._flatten_response(
+        {
+            "data": [
+                {
+                    "code": "202605",
+                    "values": [
+                        {
+                            "_id": "indicator-id",
+                            "i_showname": "火力发电量",
+                            "du_name": "亿千瓦时",
+                            "area": "全国",
+                            "areaCode": "000000000000",
+                            "value": "",
+                        }
+                    ],
+                }
+            ]
+        },
+        "monthData",
+        "cid",
+        "root-id",
+        {
+            "indicator_id": "indicator-id",
+            "series_type": "cumulative_value",
+            "label": "累计值",
+            "unit": "亿千瓦时",
+        },
+    )
+
+    assert records[0]["period_code"] == "202605"
+    assert records[0]["value"] == ""
+
+
 def test_list_pages() -> None:
     pages = nbs_fetcher.list_pages()
     assert pages

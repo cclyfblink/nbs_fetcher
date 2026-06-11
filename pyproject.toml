@@ -20,6 +20,11 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+browser = [
+    "playwright>=1.44.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/cclyfblink/nbs_fetcher"
 

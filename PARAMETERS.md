@@ -584,6 +584,46 @@ fetch("fsMonthData", cid="某个id", series="current_value", areas="all")
 
 ---
 
+## NBSFetcher session 参数
+
+`NBSFetcher` 默认会在需要时自动打开国家数据网页端，获取当前 session cookie 后重试请求。常规使用不需要手动传 cookie。
+
+```python
+from nbs_fetcher import NBSFetcher
+
+client = NBSFetcher(auto_session=True)
+```
+
+| 参数 | 类型 | 默认值 | 含义 |
+|------|------|--------|------|
+| `auto_session` | `bool` | `True` | 遇到站点 session challenge 时，自动通过浏览器获取 cookie 并重试 |
+| `browser_headless` | `bool` | `True` | 自动 session 使用无界面浏览器 |
+
+自动 session 会打开 `https://data.stats.gov.cn/dg/website/page.html#/pc/national/{page}`，等待网页端生成 `wzws_cid`、`JSESSIONID`、`client_info` 等 cookie，并写入当前 `requests.Session`。每次请求遇到 session challenge 时最多自动刷新一次 session。
+
+自动 session 需要 Playwright 和 Chromium：
+
+```bash
+uv sync --all-extras --dev
+uv run playwright install chromium
+```
+
+如需调试，可显式关闭：
+
+```python
+client = NBSFetcher(auto_session=False)
+```
+
+CLI 对应参数：
+
+```bash
+uv run nbs-fetcher --no-auto-session pages
+```
+
+当前抓取底层数据表使用 `POST /dg/website/publicrelease/web/external/stream/esData`。旧接口 `getEsDataByCidAndDt` 已不再作为 fallback。
+
+---
+
 ## 其他可用函数
 
 | 函数 | 用途 | 必要参数 |

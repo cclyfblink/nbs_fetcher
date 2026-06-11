@@ -16,12 +16,14 @@ from .constants import (
     PRIMARY_PAGES,
 )
 from .exceptions import AreaNotFoundError, IndicatorNotFoundError, NBSChallengeError, NBSRequestError, PathNotFoundError
+from .browser_session import INSTALL_HINT, fetch_browser_cookies
 from .utils import (
     coerce_list,
     infer_series_type,
     normalize_dts,
     normalize_namespaced_label,
     normalize_path,
+    normalize_series_label,
     resolve_page,
     show_type_for_sequence,
 )
@@ -36,18 +38,21 @@ class NBSFetcher:
         max_retries: int = 3,
         retry_backoff: float = 1.5,
         use_default_client_info: bool = True,
-        client_info_cookie: str | None = None,
+        auto_session: bool = True,
+        browser_headless: bool = True,
+        session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.verify = verify
         self.max_retries = max(1, max_retries)
         self.retry_backoff = retry_backoff
-        self.session = requests.Session()
+        self.auto_session = auto_session
+        self.browser_headless = browser_headless
+        self.session = session or requests.Session()
         self.session.trust_env = False
-        cookie_value = client_info_cookie or (DEFAULT_CLIENT_INFO_COOKIE if use_default_client_info else None)
-        if cookie_value:
-            self.session.cookies.set("client_info", cookie_value, domain="data.stats.gov.cn", path="/")
+        if use_default_client_info:
+            self.session.cookies.set("client_info", DEFAULT_CLIENT_INFO_COOKIE, domain="data.stats.gov.cn", path="/")
         self._root_nodes_cache: dict[str, list[dict[str, Any]]] = {}
         self._root_id_cache: dict[str, str] = {}
         self._path_cache: dict[tuple[str, tuple[str, ...]], dict[str, Any]] = {}
@@ -79,7 +84,7 @@ class NBSFetcher:
             if "Please enable JavaScript" in response.text or "noscript" in response.text:
                 raise NBSChallengeError(
                     "NBS returned a JavaScript challenge instead of JSON. "
-                    "Retry later, pass a fresh client_info_cookie, or use the website page to refresh session state. "
+                    "Retry later or enable automatic browser session bootstrap. "
                     f"page={page!r}, path={path!r}, response={snippet!r}"
                 )
             raise NBSRequestError(
@@ -93,6 +98,42 @@ class NBSFetcher:
                 f"NBS returned a non-JSON response. page={page!r}, path={path!r}, response={snippet!r}"
             ) from exc
 
+    def _is_session_related_error(self, exc: Exception) -> bool:
+        if isinstance(exc, NBSChallengeError):
+            return True
+        if isinstance(exc, requests.HTTPError):
+            response = exc.response
+            return response is not None and response.status_code in {401, 403, 412, 429}
+        if isinstance(exc, NBSRequestError):
+            message = str(exc)
+            return "HTML instead of JSON" in message or "non-JSON response" in message
+        return False
+
+    def _install_browser_cookies(self, cookies: list[dict[str, Any]]) -> None:
+        for cookie in cookies:
+            name = cookie.get("name")
+            value = cookie.get("value")
+            if not name or value is None:
+                continue
+            domain = cookie.get("domain") or "data.stats.gov.cn"
+            path = cookie.get("path") or "/"
+            self.session.cookies.set(name, value, domain=domain, path=path)
+
+    def _bootstrap_browser_session(self, page: str) -> None:
+        timeout_ms = max(int(self.timeout * 1000), 30_000)
+        try:
+            cookies = fetch_browser_cookies(
+                self.base_url,
+                page,
+                timeout_ms=timeout_ms,
+                headless=self.browser_headless,
+            )
+        except RuntimeError as exc:
+            raise NBSChallengeError(str(exc) or INSTALL_HINT) from exc
+        if not cookies:
+            raise NBSChallengeError("Automatic NBS session bootstrap did not return cookies.")
+        self._install_browser_cookies(cookies)
+
     def _request_json(
         self,
         method: str,
@@ -103,6 +144,7 @@ class NBSFetcher:
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         last_error: Exception | None = None
+        auto_session_attempted = False
         for attempt in range(self.max_retries):
             try:
                 response = self.session.request(
@@ -117,6 +159,10 @@ class NBSFetcher:
                 return self._decode_json_response(response, path, page)
             except (requests.RequestException, NBSRequestError) as exc:
                 last_error = exc
+                if self.auto_session and not auto_session_attempted and self._is_session_related_error(exc):
+                    auto_session_attempted = True
+                    self._bootstrap_browser_session(page)
+                    continue
                 self._sleep_before_retry(attempt)
 
         if isinstance(last_error, NBSRequestError):
@@ -326,12 +372,14 @@ class NBSFetcher:
         matched: list[dict[str, Any]] = []
         for wanted in requested:
             wanted_normalized = normalize_namespaced_label(wanted)
+            wanted_series_label = normalize_series_label(wanted)
             item = next(
                 (
                     indicator
                     for indicator in available
                     if wanted == indicator["indicator_id"]
                     or wanted_normalized == normalize_namespaced_label(indicator["label"])
+                    or wanted_series_label == normalize_series_label(indicator["label"])
                     or wanted == indicator["series_type"]
                 ),
                 None,
@@ -562,7 +610,7 @@ class NBSFetcher:
                 "rootId": root_id,
             }
             raw = self._post(
-                "/dg/website/publicrelease/web/external/getEsDataByCidAndDt",
+                "/dg/website/publicrelease/web/external/stream/esData",
                 payload,
                 spec.route,
             )

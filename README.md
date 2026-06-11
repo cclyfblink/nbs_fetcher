@@ -7,7 +7,7 @@
 - `queryDtByCid`
 - `getDaCatalogTreeByIndicatorCid`
 - `getDasByDaCatalogId`
-- `getEsDataByCidAndDt`
+- `stream/esData`
 
 本目录是一个独立的 Python 包，已包含：
 
@@ -25,9 +25,10 @@
 
 - 站点根域名：`https://data.stats.gov.cn`
 - 页面入口：`https://data.stats.gov.cn/dg/website/page.html#/pc/national/` 下的页面
-- 接口前缀：`https://data.stats.gov.cn/dg/website/publicrelease/web/external/new/`
+- 元数据接口前缀：`https://data.stats.gov.cn/dg/website/publicrelease/web/external/new/`
+- 数据表接口：`https://data.stats.gov.cn/dg/website/publicrelease/web/external/stream/esData`
 
-也就是说，`nbs_fetcher` 当前只用于**国家统计局国家数据平台网页端国家数据入口**下、由上述 `external/new` 接口族驱动的数据目录浏览和表格数据提取。
+也就是说，`nbs_fetcher` 当前只用于**国家统计局国家数据平台网页端国家数据入口**下的数据目录浏览和表格数据提取。目录、指标、时间和地区元数据通过 `external/new` 接口族获取，底层数据表通过 `external/stream/esData` 获取。
 
 当前代码中硬编码的 base URL 为：
 
@@ -48,7 +49,7 @@ BASE_URL = "https://data.stats.gov.cn"
 - `https://data.stats.gov.cn/dg/website/page.html#/pc/national/gatMonthData`
 - `https://data.stats.gov.cn/dg/website/page.html#/pc/national/gatYearData`
 
-所有网络请求都限定在这些页面背后的 `/dg/website/publicrelease/web/external/new/` 接口上，不包含站点其他栏目、下载页或门户内容。
+所有网络请求都限定在这些页面背后的 `/dg/website/publicrelease/web/external/new/` 和 `/dg/website/publicrelease/web/external/stream/esData` 接口上，不包含站点其他栏目、下载页或门户内容。
 
 ### 适配的接口
 
@@ -61,7 +62,9 @@ BASE_URL = "https://data.stats.gov.cn"
 | `queryDtByCid` | 查询可用时间点 |
 | `getDaCatalogTreeByIndicatorCid` | 查询数据目录树 |
 | `getDasByDaCatalogId` | 查询数据维度值 |
-| `getEsDataByCidAndDt` | 获取底层数据表 |
+| `stream/esData` | 获取底层数据表 |
+
+旧数据表接口 `getEsDataByCidAndDt` 已停止使用，当前版本不保留旧接口 fallback。
 
 ### 不适配的范围
 
@@ -70,7 +73,7 @@ BASE_URL = "https://data.stats.gov.cn"
 - 不适配 `data.stats.gov.cn` 站内未接入当前页面模型的其他栏目、专题页或人工下载入口。
 - 不适配 `data.stats.gov.cn` 以外的任何子域名或第三方镜像站点。
 - 不做网页账号登录、验证码处理、附件下载自动化、Excel 批处理、PDF 解析、ETL 落库等站点外延能力。
-- 当前项目的能力边界就是：**对 `https://data.stats.gov.cn/dg/website/page.html#/pc/national/...` 页面所调用的 `external/new` 接口做自动化提取**。
+- 当前项目的能力边界就是：**对 `https://data.stats.gov.cn/dg/website/page.html#/pc/national/...` 页面所调用的元数据接口和数据表接口做自动化提取**。
 - 不提供旧版 `easyquery.htm` 接口的兼容层。
 - CLI `--output` 当前仅支持写入 JSON 文本，不支持 CSV/XLSX/Parquet 导出。
 
@@ -125,7 +128,17 @@ pip install -e .
 或：
 
 ```bash
-uv sync
+uv sync --all-extras --dev
+uv run playwright install chromium
+```
+
+自动获取国家数据站点 session 需要 Playwright 和 Chromium。若只安装基础依赖，目录查询可能仍可用，但遇到站点 session challenge 时无法自动恢复。
+
+如需使用自动 session，建议按以下方式安装：
+
+```bash
+uv sync --all-extras --dev
+uv run playwright install chromium
 ```
 
 ## 使用流程
@@ -236,6 +249,22 @@ result = fetch(
 
 - `110000` 表示北京市
 - `areas` 也可写为 `北京市` 或 `110000000000`
+
+### 常用验证示例
+
+年度火力发电量：
+
+```bash
+uv run nbs-fetcher fetch yearData --path "能源/能源产品产量" --series "火力发电量" --dts "2014-2024" --format records
+```
+
+月度火力发电量累计值：
+
+```bash
+uv run nbs-fetcher fetch monthData --path "能源/能源主要产品产量/火力发电量" --series cumulative_value --dts "202601-202605" --format records
+```
+
+如果站点返回 session challenge，CLI 默认会自动打开无界面浏览器获取当前 session 后重试。调试时可通过 `--no-auto-session` 关闭该行为。
 
 ## Python API
 
@@ -409,23 +438,30 @@ python -m nbs_fetcher fetch fsMonthData --path "能源/能源主要产品产量/
 - 顶层函数默认复用同一个内部 client，因此单次运行可共享缓存
 - 对分省页面，外部可直接传 6 位省级代码，内部会映射为新版接口使用的 12 位地区值
 - 某些布局下多个序列会拆成多次请求，再在本地合并结果
-- `NBSFetcher` 默认携带网页端 `client_info` cookie，并对网络错误、非 JSON 响应和站点 JavaScript challenge 做有限重试
+- `fetch()` 使用当前网页端数据接口 `stream/esData`
+- `NBSFetcher` 默认自动获取网页 session，并对网络错误、非 JSON 响应和站点 JavaScript challenge 做有限重试
 
 ### 请求稳定性
 
 国家统计局国家数据站点有时会对裸 HTTP 请求返回 HTML challenge，而不是 JSON。当前版本做了以下处理：
 
-- 默认设置网页端 `client_info` cookie，尽量与页面端请求保持一致
+- 默认通过 Playwright 打开网页端页面，自动获取 `wzws_cid`、`JSESSIONID`、`client_info` 等 session cookie
 - 默认最多重试 3 次，带线性退避
-- 识别 `Please enable JavaScript` / `noscript` 等 challenge 页面，并抛出 `NBSChallengeError`
+- 识别 `Please enable JavaScript` / `noscript` 等 challenge 页面，自动刷新 session 后重试一次
 - CLI 会输出可读错误，不再直接暴露 `JSONDecodeError` traceback
 
-如果仍然遇到 challenge，可在 Python API 中传入从浏览器获取的新 cookie：
+如需调试或确认当前 session 已可用，可关闭自动 session：
 
 ```python
 from nbs_fetcher import NBSFetcher
 
-client = NBSFetcher(client_info_cookie="...")
+client = NBSFetcher(auto_session=False)
+```
+
+CLI 对应参数：
+
+```bash
+uv run nbs-fetcher --no-auto-session pages
 ```
 
 也可以调低或关闭重试：
@@ -437,7 +473,7 @@ client = NBSFetcher(max_retries=1, retry_backoff=0)
 ## 已知边界
 
 - 当前默认 `verify=False`，请求时会出现 HTTPS 证书校验告警
-- 默认 `client_info` cookie 是静态网页端指纹，不保证长期有效；若站点策略变化，仍可能需要刷新 cookie 或后续引入浏览器辅助模式
+- 自动 session 依赖国家数据网页端当前加载逻辑；若站点反爬或页面结构变化，可能需要更新浏览器 session 获取步骤
 - `mainMonthData`、`mainYearData`、`gatMonthData`、`gatYearData` 的地区集合依赖实时接口返回，不在代码中固化
 - `areas()` 对城市页和港澳台页优先走实时接口；只有分省页内置了固定省级映射表
 - 本项目不提供旧版 `cnstats` 接口兼容层

@@ -9,6 +9,7 @@ from typing import Any
 from tabulate import tabulate
 
 from .client import NBSFetcher
+from .browser_session import INSTALL_HINT
 from .exceptions import NBSChallengeError, NBSFetcherError, NBSRequestError
 
 
@@ -62,6 +63,11 @@ def main() -> None:
         prog="nbs-fetcher",
         description="获取当前国家统计局网站新版接口数据。",
     )
+    parser.add_argument(
+        "--no-auto-session",
+        action="store_true",
+        help="关闭自动浏览器 session 获取；仅用于调试或已知当前 session 可用的情况",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     pages_parser = subparsers.add_parser("pages", help="列出当前支持的页面族")
@@ -106,7 +112,7 @@ def main() -> None:
     fetch_parser.add_argument("--output", help="把结果写入指定文件路径")
 
     args = parser.parse_args()
-    client = NBSFetcher()
+    client = NBSFetcher(auto_session=not args.no_auto_session)
 
     try:
         if args.command == "pages":
@@ -131,8 +137,8 @@ def main() -> None:
                 as_df=args.as_df,
             )
     except NBSChallengeError as exc:
-        print(f"NBS 请求被站点 JavaScript challenge 拦截：{exc}", file=sys.stderr)
-        print("建议：稍后重试；或在 Python API 中传入 fresh client_info_cookie。", file=sys.stderr)
+        print(f"NBS 请求被站点 session 或 JavaScript challenge 拦截：{exc}", file=sys.stderr)
+        print(f"建议：{INSTALL_HINT}", file=sys.stderr)
         raise SystemExit(2) from exc
     except NBSRequestError as exc:
         print(f"NBS 请求失败：{exc}", file=sys.stderr)
